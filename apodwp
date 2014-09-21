@@ -1,0 +1,132 @@
+#!/usr/bin/perl -w
+# This utterly useless piece of software
+# downloads the "Astronomy Picture of the Day" along with the accompanying
+# description off NASA's website
+# (http://apod.nasa.gov/apod/, or URL provided on cmd line),
+# and installs that as the new desktop wallpaper.
+#
+# sample screenshot: doc/apodwp-shot.png
+
+# customization below, or in ~/.apodwprc
+
+# requires wget, GD.pm (in Debian: apt-get install wget libgd-gd2-perl)
+
+# TODO: preserve original image aspect ratio
+
+#Copyright (c) Olaf Klischat. All rights reserved.
+#     This program is free software; you can redistribute it and/or
+#     modify it under the same terms as Perl itself.
+
+use strict;
+
+# set desktop wallpaper to given picture file
+# die if anything goes wrong
+# WM-/(desktop) environment-specific code goes here
+# may be redefined in ~/.apodwprc without changing this file.
+sub setwallpaper {
+    my $picpath = shift;
+
+    my $dest = "$ENV{HOME}/default-background-image.png";
+    unlink $dest;
+    symlink $picpath, $dest or die $!;
+
+    ### "simple" window managers
+    # system qw/xsetbg -display :0/, $picpath and die $!;
+    ### xfce  (image set to ~/default-background-image.png in settings dialog)
+    system qw/xfdesktop --reload/ and die $!;
+    ### Gnome2
+    #system qw{gconftool-2 --type string --set /desktop/gnome/background/picture_filename}, $picpath and die $!;
+    ### KDE 3.x
+    # system qw{dcop kdesktop KBackgroundIface setWallpaper}, $picpath, 6 and die $!;
+}
+
+
+# extract ($imgurl,$imgname,$title,$explanation) from
+# HTML stream
+sub extractImgInfo {
+    my $in = shift;
+
+    local $/ = undef;
+
+    my ($imgurl,$imgname,$title,$explanation) = <$in> =~ m!a href="(image/\d+/(.*?))".*?<center>.*?<b>\s*(.*?)\s</b>.*?</center>.*?Explanation:\s</b>\s*(.*?)<p>!si;
+    
+    $explanation =~ s!<a .*?>(.*?)</a>!$1!sig;
+    $explanation =~ s/[\s\n]+/ /sg;
+
+    ($imgurl,$imgname,$title,$explanation);
+}
+
+
+sub wordwrap($$);
+
+sub wordwrap($$) {
+    my ($string, $width) = @_;
+    if (length $string <= $width) {
+        $string;
+    }
+    else {
+        ($string =~ /^(.{0,$width})\s+(.*)/) or ($string =~ /^(.{$width})(.*)/);
+        $1 . "\n" . wordwrap($2,$width);
+    }
+}
+
+
+use GD;
+GD::Image->trueColor(1);
+
+## customization variables
+use vars qw($baseurl $localplace $destW $destH $txtX $txtY $txtwidth $txtColor $font $outputFormat $outputOptions);
+
+$baseurl = $ARGV[0] || "http://apod.nasa.gov/apod/";
+$localplace = "$ENV{HOME}/wallpaper";
+($destW,$destH) = (1024,768);
+($txtX,$txtY,$txtwidth,$txtColor,$font) = (900,580,40,[0,255,0],gdLargeFont);
+# use PNG for output by default so the readability of the text
+# isn't diminished by JPEG encoding
+($outputFormat,$outputOptions) = ("png",[]);
+
+do "$ENV{HOME}/.apodwprc" if (-f "$ENV{HOME}/.apodwprc");
+
+mkdir $localplace unless -d $localplace;
+
+
+my $idxfile;
+open($idxfile, "wget -O- $baseurl |") or die "unable to wget -O- $baseurl";
+my ($imgurl,$imgname,$title,$explanation) = extractImgInfo($idxfile)
+        or die "this does not appear to be an APOD page";
+close $idxfile;
+$explanation = wordwrap($explanation,$txtwidth);
+
+print STDERR "found image: $imgurl\n";
+unless (-f "$localplace/$imgname") {
+    system('wget', '-O', "$localplace/$imgname", ($baseurl =~ m!(.*/)!)[0] . $imgurl) and die $!;
+}
+
+
+my $localImgname = "$localplace/$imgname";
+my $srcimage = GD::Image->new($localImgname);
+if ($srcimage) {
+    my $destImg = GD::Image->new($destW,$destH,1);
+    $destImg->copyResampled($srcimage,0,0,
+                            0,0,$destW,$destH,$srcimage->getBounds());
+
+    my $col = $destImg->colorAllocate(@$txtColor);
+    my $y = $txtY;
+    for my $line (split(/\n/,"$title\n\n$explanation")) {
+        $destImg->string($font,$txtX,$y,$line,$col);
+        $y += $font->height;
+    }
+
+    $localImgname .= ".edited.$outputFormat";
+    open (F,">$localImgname") || die;
+    binmode F;
+    print F $destImg->$outputFormat(@$outputOptions);
+    close F;
+}
+else {
+    print STDERR "file format of $localImgname not supported by GD. Selecting the file unchanged.\n";
+}
+
+setwallpaper $localImgname;
+ # delete older stuff
+#system 'find', $localplace, qw/-mindepth 1 -maxdepth 1 -type f -ctime +10 -exec rm -f {} ;/ and die $!;
