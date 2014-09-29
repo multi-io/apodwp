@@ -1,0 +1,15 @@
+- automatically recognize screen resolution, window manager/DE, use
+  those by default
+
+- more flexible image scaling: option to keep aspect ratio, fit to
+  screen or fit height/width
+
+- more dynamic text placement: corner/"center" + x/z offset. May
+  require font metrics computations or text drawing to 2nd bitmap w/
+  alpha channel
+
+- option to choose text color dynamically, maximizing contrast
+
+- autogenerate ~/.apodwprc with commented-out options
+
+- delete old images
